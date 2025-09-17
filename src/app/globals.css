@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors;
+  }
+  
+  .btn-secondary {
+    @apply border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg border border-gray-200 shadow-sm;
+  }
+  
+  .input-field {
+    @apply block w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-blue-500 focus:border-blue-500;
+  }
+}
+
+/* Loading animations */
+.animate-pulse-slow {
+  animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* File upload hover effects */
+.file-upload-area {
+  @apply transition-all duration-200;
+}
+
+.file-upload-area:hover {
+  @apply border-blue-400 bg-blue-50/30;
+}
+
+/* Progress bar styles */
+.progress-bar {
+  @apply bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-1000 ease-out;
+}
