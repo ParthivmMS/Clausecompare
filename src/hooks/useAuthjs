@@ -1,0 +1,20 @@
+import { useState } from 'react';
+
+export default function useAuth() {
+  const [user, setUser] = useState(null);
+
+  const login = async ({ email, password }) => {
+    // Placeholder auth logic (replace with real API call)
+    if (email && password) {
+      setUser({ email });
+      return true;
+    }
+    return false;
+  };
+
+  const logout = () => {
+    setUser(null);
+  };
+
+  return { user, login, logout };
+}
