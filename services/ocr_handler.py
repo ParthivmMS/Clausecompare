@@ -2,7 +2,13 @@ import io
 from pdfminer.high_level import extract_text as pdf_extract_text
 from docx import Document
 from PIL import Image
-import pytesseract
+
+# Make pytesseract optional
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except ImportError:
+    PYTESSERACT_AVAILABLE = False
 
 
 def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
@@ -32,19 +38,17 @@ def extract_from_pdf(file_bytes: bytes) -> str:
         
         # If extracted text is too short, it might be a scanned PDF
         if len(text.strip()) < 50:
-            try:
-                # Attempt OCR as fallback
-                return extract_from_scanned_pdf(file_bytes)
-            except:
-                pass
+            if PYTESSERACT_AVAILABLE:
+                try:
+                    return extract_from_scanned_pdf(file_bytes)
+                except:
+                    pass
+            # If OCR not available or fails, return what we have
+            return text
         
         return text
     except Exception as e:
-        # Try OCR as fallback
-        try:
-            return extract_from_scanned_pdf(file_bytes)
-        except:
-            raise Exception(f"Failed to extract text from PDF: {str(e)}")
+        raise Exception(f"Failed to extract text from PDF: {str(e)}")
 
 
 def extract_from_docx(file_bytes: bytes) -> str:
@@ -59,12 +63,12 @@ def extract_from_docx(file_bytes: bytes) -> str:
 def extract_from_scanned_pdf(file_bytes: bytes) -> str:
     """
     Extract text from scanned PDF using OCR (optional feature).
-    Requires pytesseract and tesseract-ocr installed.
+    Requires pytesseract and pdf2image installed.
     """
+    if not PYTESSERACT_AVAILABLE:
+        raise Exception("OCR support not available. Install pytesseract and pdf2image.")
+    
     try:
-        # Convert PDF to images and run OCR
-        # This is a simplified implementation
-        # For production, use pdf2image library
         from pdf2image import convert_from_bytes
         
         images = convert_from_bytes(file_bytes)
@@ -75,6 +79,6 @@ def extract_from_scanned_pdf(file_bytes: bytes) -> str:
         
         return text
     except ImportError:
-        raise Exception("OCR support not available. Install pdf2image and pytesseract.")
+        raise Exception("OCR support requires pdf2image library.")
     except Exception as e:
         raise Exception(f"OCR failed: {str(e)}")
