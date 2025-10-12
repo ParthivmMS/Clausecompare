@@ -1,8 +1,7 @@
 import os
 import json
-from typing import Dict, Optional
-from openai import OpenAI
-
+from typing import Dict
+from groq import Groq
 
 SYSTEM_PROMPT = """You are an assistant that explains contract clause differences in plain English to non-lawyers. For each diff, produce:
 1) A 1-3 sentence explanation of why the change matters.
@@ -13,16 +12,16 @@ Return JSON object: {"explanation":"...", "suggestions":["...","..."], "confiden
 
 def get_llm_explanation(old_text: str, new_text: str, severity: str) -> Dict:
     """
-    Get LLM-powered explanation for a contract clause difference.
+    Get LLM-powered explanation for a contract clause difference using Groq API.
     Falls back to template-based explanation if LLM unavailable.
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GROQ_API_KEY")
     
     if not api_key:
         return get_template_explanation(old_text, new_text, severity)
     
     try:
-        client = OpenAI(api_key=api_key)
+        client = Groq(api_key=api_key)
         
         user_prompt = f"""Old clause:
 {old_text[:1000]}
@@ -35,7 +34,7 @@ Severity: {severity}
 Provide explanation/suggestions JSON."""
         
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
