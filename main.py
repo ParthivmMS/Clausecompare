@@ -1,9 +1,10 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os
 from datetime import datetime
 from typing import Optional
+from collections import defaultdict
 
 from services.ocr_handler import extract_text_from_file
 from services.diff_engine import generate_diff_report
@@ -15,6 +16,10 @@ app = FastAPI(
     description="AI-powered contract comparison with semantic understanding",
     version="2.0.0"
 )
+
+# Simple in-memory usage tracking (replace with database in production)
+usage_tracker = defaultdict(lambda: {"count": 0, "month": datetime.utcnow().strftime("%Y-%m")})
+MONTHLY_LIMIT = 10  # Free tier limit
 
 # CORS configuration
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
@@ -59,10 +64,13 @@ async def compare_contracts(
     fileA: UploadFile = File(..., description="First contract file (PDF, DOCX, or TXT)"),
     fileB: UploadFile = File(..., description="Second contract file (PDF, DOCX, or TXT)"),
     use_llm: Optional[str] = Form("false", description="Enhance rule-based diffs with AI explanations"),
-    use_ai_full: Optional[str] = Form("true", description="Use full AI-powered semantic comparison (RECOMMENDED - default)")
+    use_ai_full: Optional[str] = Form("true", description="Use full AI-powered semantic comparison (RECOMMENDED - default)"),
+    user_id: Optional[str] = Header(None, alias="X-User-ID")
 ):
     """
     Compare two contract files with semantic understanding.
+    
+    FREE TIER LIMIT: 10 comparisons per month per user.
     
     This endpoint performs intelligent, lawyer-grade contract comparison that focuses
     on legal meaning changes, not just text differences.
@@ -72,6 +80,7 @@ async def compare_contracts(
         fileB: Second contract file (New/modified version)
         use_llm: "true" to enhance rule-based diffs with AI explanations (optional)
         use_ai_full: "true" to use full AI-powered semantic comparison (RECOMMENDED - default is "true")
+        X-User-ID: User identifier (header) for usage tracking
     
     Comparison Methods:
         1. AI Semantic Analysis (RECOMMENDED - default):
@@ -95,18 +104,43 @@ async def compare_contracts(
         - summary: Executive summary of all changes
         - verdict: Recommendation on contract safety
         - riskReport: Detailed risk analysis
-        - diffs: Array of clause-by-clause differences with:
-          * clause: Clause name/title
-          * type: "Modified", "Added", "Removed", or "Reworded"
-          * summary: Brief description of change
-          * oldText: Original clause text
-          * newText: New clause text
-          * severity: "High", "Medium", or "Low"
-          * explanation: Detailed impact explanation
-          * confidence: Confidence percentage (0-100)
-          * suggestions: Negotiation recommendations
+        - diffs: Array of clause-by-clause differences
+        - usage: Remaining comparisons this month
     """
     try:
+        # Usage tracking - use user_id or IP address as identifier
+        user_identifier = user_id or "anonymous"
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        
+        # Reset counter if new month
+        if usage_tracker[user_identifier]["month"] != current_month:
+            usage_tracker[user_identifier] = {"count": 0, "month": current_month}
+        
+        # Check monthly limit
+        usage_count = usage_tracker[user_identifier]["count"]
+        
+        if usage_count >= MONTHLY_LIMIT:
+            remaining = 0
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "Monthly comparison limit reached",
+                    "message": f"You have used all {MONTHLY_LIMIT} comparisons for this month. Upgrade to Pro for unlimited comparisons.",
+                    "usage": {
+                        "used": usage_count,
+                        "limit": MONTHLY_LIMIT,
+                        "remaining": 0,
+                        "resets_on": f"{current_month}-01"
+                    }
+                }
+            )
+        
+        # Increment usage counter
+        usage_tracker[user_identifier]["count"] += 1
+        remaining = MONTHLY_LIMIT - usage_tracker[user_identifier]["count"]
+        
+        print(f"User: {user_identifier}, Usage: {usage_tracker[user_identifier]['count']}/{MONTHLY_LIMIT}")
+        
         # Validate file formats
         allowed_extensions = ['pdf', 'docx', 'doc', 'txt']
         
@@ -264,6 +298,12 @@ async def compare_contracts(
             "riskReport": report.get("riskReport", ""),
             "verdict": report.get("verdict", ""),
             "diffs": diffs,
+            "usage": {
+                "used": usage_tracker[user_identifier]["count"],
+                "limit": MONTHLY_LIMIT,
+                "remaining": remaining,
+                "plan": "Free"
+            },
             "metadata": {
                 "createdAt": timestamp,
                 "fileA": fileA.filename,
