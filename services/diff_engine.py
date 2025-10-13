@@ -1,4 +1,63 @@
-import difflib
+def normalize_clause_title(title: str) -> str:
+    """
+    Normalize clause titles to handle fuzzy matching.
+    Maps common aliases to standard names.
+    """
+    title_lower = title.lower().strip()
+    
+    # Clause type aliases mapping
+    ALIASES = {
+        # Payment/Compensation
+        "compensation": "Payment Terms",
+        "payment": "Payment Terms",
+        "fee": "Payment Terms",
+        "fees": "Payment Terms",
+        "pricing": "Payment Terms",
+        "cost": "Payment Terms",
+        
+        # Intellectual Property
+        "ip": "Intellectual Property",
+        "ip rights": "Intellectual Property",
+        "intellectual property": "Intellectual Property",
+        "copyright": "Intellectual Property",
+        "patent": "Intellectual Property",
+        "trademark": "Intellectual Property",
+        
+        # Liability
+        "liability": "Liability",
+        "indemnification": "Liability",
+        "indemnity": "Liability",
+        
+        # Confidentiality
+        "confidential": "Confidentiality",
+        "confidentiality": "Confidentiality",
+        "nda": "Confidentiality",
+        "non-disclosure": "Confidentiality",
+        
+        # Termination
+        "termination": "Termination",
+        "end of agreement": "Termination",
+        "cancellation": "Termination",
+        
+        # Governing Law
+        "governing law": "Governing Law",
+        "jurisdiction": "Governing Law",
+        "applicable law": "Governing Law",
+        
+        # Scope
+        "scope": "Scope of Work",
+        "scope of work": "Scope of Work",
+        "deliverables": "Scope of Work",
+        "services": "Scope of Work"
+    }
+    
+    # Check for direct matches
+    for alias, standard_name in ALIASES.items():
+        if alias in title_lower:
+            return standard_name
+    
+    # Return original if no match (capitalize properly)
+    return title.strip()import difflib
 import re
 from typing import List, Dict, Tuple
 
@@ -365,7 +424,7 @@ def generate_diff_report(text_a: str, text_b: str) -> Dict:
             risk_counters[severity] += 1
             
             diff_entry = {
-                "clause": clause_a["title"] or clause_b["title"] or f"Clause {idx_a + 1}",
+                "clause": normalize_clause_title(clause_a["title"] or clause_b["title"] or f"Clause {idx_a + 1}"),
                 "type": "Modified",
                 "summary": risk_type,
                 "oldText": clause_a["content"][:800].strip(),
@@ -465,7 +524,27 @@ def determine_addition_severity(title: str, content: str) -> str:
 
 
 def calculate_refined_risk_score(risk_counters: Dict, diffs: List[Dict]) -> int:
-    """Calculate risk score with refined algorithm (0-100 scale)"""
+    """Calculate risk score with refined algorithm and clause-type weights (0-100 scale)"""
+    
+    # Clause-type weights (as per requirements)
+    CLAUSE_WEIGHTS = {
+        "liability": 1.5,
+        "indemnif": 1.5,
+        "intellectual property": 1.4,
+        "ip rights": 1.4,
+        "copyright": 1.4,
+        "patent": 1.4,
+        "governing law": 1.3,
+        "jurisdiction": 1.3,
+        "payment": 1.2,
+        "compensation": 1.2,
+        "fee": 1.2,
+        "scope of work": 1.0,
+        "deliverable": 1.0,
+        "confidential": 1.0,
+        "termination": 0.8,
+        "notice": 0.8
+    }
     
     # Base points per severity
     base_points = {
@@ -476,9 +555,23 @@ def calculate_refined_risk_score(risk_counters: Dict, diffs: List[Dict]) -> int:
     
     total_risk = 0
     
-    # Add base risk
-    for severity, count in risk_counters.items():
-        total_risk += base_points[severity] * count
+    # Add base risk with clause-type weighting
+    for diff in diffs:
+        severity = diff.get("severity", "Low")
+        clause_title = diff.get("clause", "").lower()
+        
+        # Get base points for severity
+        points = base_points.get(severity, 3)
+        
+        # Apply clause-type weight
+        weight = 1.0
+        for clause_type, clause_weight in CLAUSE_WEIGHTS.items():
+            if clause_type in clause_title:
+                weight = clause_weight
+                break
+        
+        # Add weighted points
+        total_risk += points * weight
     
     # Add multipliers for specific critical changes
     for diff in diffs:
@@ -498,7 +591,7 @@ def calculate_refined_risk_score(risk_counters: Dict, diffs: List[Dict]) -> int:
             total_risk += 10
     
     # Cap at 100
-    return min(100, total_risk)
+    return min(100, int(total_risk))
 
 
 def generate_summary_and_verdict(diffs: List[Dict], risk_counters: Dict, risk_score: int) -> tuple:
