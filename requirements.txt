@@ -8,3 +8,5 @@ groq==0.4.1
 python-dotenv==1.0.0
 pytest==8.0.0
 httpx==0.26.0
+supabase==2.3.0
+pydantic-settings==2.0.0
