@@ -57,7 +57,8 @@ def normalize_clause_title(title: str) -> str:
             return standard_name
     
     # Return original if no match (capitalize properly)
-    return title.strip()import difflib
+    return title.strip()
+    import difflib
 import re
 from typing import List, Dict, Tuple
 
