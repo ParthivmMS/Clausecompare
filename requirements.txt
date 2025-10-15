@@ -11,7 +11,8 @@ httpx
 
 # Auth and database
 supabase
-pydantic
+pydantic[email]
 pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
+email-validator
