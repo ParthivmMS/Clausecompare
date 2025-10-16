@@ -74,13 +74,18 @@ usage_tracker = defaultdict(lambda: {"count": 0, "month": datetime.utcnow().strf
 MONTHLY_LIMIT = 10  # Free tier limit
 
 # CORS configuration
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=[
+        "https://clausecompare-frontend-koig.vercel.app",
+        "http://localhost:3000",
+        "*"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600
 )
 
 # ============================================
