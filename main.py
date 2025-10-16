@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 from datetime import datetime, timedelta
@@ -61,7 +61,7 @@ class LoginRequest(BaseModel):
     password: str
 
 # ============================================
-# ORIGINAL APP SETUP (UNCHANGED)
+# ORIGINAL APP SETUP
 # ============================================
 app = FastAPI(
     title="ClauseCompare API",
@@ -73,7 +73,9 @@ app = FastAPI(
 usage_tracker = defaultdict(lambda: {"count": 0, "month": datetime.utcnow().strftime("%Y-%m")})
 MONTHLY_LIMIT = 10  # Free tier limit
 
-# CORS configuration
+# ============================================
+# FIXED CORS CONFIGURATION
+# ============================================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -193,6 +195,35 @@ async def get_report(report_id: str, user_id: str = Depends(get_current_user)):
     except Exception as e:
         print(f"Get report error: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch report")
+
+@app.get("/reports/{report_id}/pdf")
+async def download_report_pdf(report_id: str, user_id: str = Depends(get_current_user)):
+    """Generate and download PDF report"""
+    from services.pdf_generator import generate_pdf_report
+    
+    try:
+        report = await ReportService.get_report_by_id(report_id, user_id)
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Generate PDF
+        pdf_bytes = generate_pdf_report(report)
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=clausecompare-{report_id}.pdf"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"PDF generation error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to generate PDF")
 
 # ============================================
 # ORIGINAL ENDPOINTS (KEPT AS-IS)
