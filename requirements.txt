@@ -8,6 +8,7 @@ groq
 python-dotenv
 pytest
 httpx
+reportlab
 
 # Auth and database
 supabase
