@@ -198,10 +198,18 @@ async def get_report(report_id: str, user_id: str = Depends(get_current_user)):
 
 @app.get("/reports/{report_id}/pdf")
 async def download_report_pdf(report_id: str, user_id: str = Depends(get_current_user)):
-    """Generate and download PDF report"""
+    """Generate and download PDF report - PRO PLAN ONLY"""
     from services.pdf_generator import generate_pdf_report
     
     try:
+        # CHECK USER PLAN
+        user = await UserService.get_user_by_id(user_id)
+        if user['plan'] == 'free':
+            raise HTTPException(
+                status_code=403, 
+                detail="PDF export is only available for Pro users. Please upgrade."
+            )
+        
         report = await ReportService.get_report_by_id(report_id, user_id)
         
         if not report:
