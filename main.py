@@ -232,7 +232,38 @@ async def download_report_pdf(report_id: str, user_id: str = Depends(get_current
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Failed to generate PDF")
-
+        
+@app.delete("/reports/{report_id}")
+async def delete_report(
+    report_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Delete a specific report permanently"""
+    try:
+        # Check if report exists and belongs to user
+        report = await ReportService.get_report_by_id(report_id, user_id)
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Delete from database
+        from services.database import supabase
+        supabase.table("reports").delete().eq(
+            "report_id", report_id
+        ).eq(
+            "user_id", user_id
+        ).execute()
+        
+        return {
+            "message": "Report deleted successfully",
+            "report_id": report_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Delete error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 # ============================================
 # ORIGINAL ENDPOINTS (KEPT AS-IS)
 # ============================================
