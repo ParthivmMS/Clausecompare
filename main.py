@@ -9,6 +9,8 @@ from collections import defaultdict
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from services.ocr_handler import extract_text_from_file
 from services.diff_engine import generate_diff_report
@@ -23,6 +25,10 @@ from services.database import UserService, ReportService
 SECRET_KEY = os.getenv("JWT_SECRET", "your-secret-key-change-in-production-VERY-IMPORTANT")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 30
+
+# Google OAuth Configuration
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
@@ -59,6 +65,9 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+class GoogleAuthRequest(BaseModel):
+    credential: str  # Google JWT token from frontend
 
 # ============================================
 # ORIGINAL APP SETUP
@@ -161,13 +170,88 @@ async def get_me(user_id: str = Depends(get_current_user)):
             "email": user["email"],
             "plan": user["plan"],
             "comparisons_used": user["comparisons_used"],
-            "comparisons_limit": user["comparisons_limit"]
+            "comparisons_limit": user["comparisons_limit"],
+            "profile_picture": user.get("profile_picture")
         }
     except HTTPException:
         raise
     except Exception as e:
         print(f"Get user error: {e}")
         raise HTTPException(status_code=500, detail="Failed to get user")
+
+@app.post("/auth/google")
+async def google_auth(data: GoogleAuthRequest):
+    """Authenticate user with Google OAuth token"""
+    try:
+        # Verify Google token
+        idinfo = id_token.verify_oauth2_token(
+            data.credential, 
+            google_requests.Request(), 
+            GOOGLE_CLIENT_ID
+        )
+        
+        # Extract user info
+        google_user_id = idinfo['sub']
+        email = idinfo['email']
+        picture = idinfo.get('picture', '')
+        
+        # Check if user exists
+        existing_user = await UserService.get_user_by_email(email)
+        
+        if existing_user:
+            user = existing_user
+            
+            # Update Google info if not set
+            if not user.get('google_id'):
+                from services.database import supabase
+                supabase.table("users").update({
+                    "google_id": google_user_id,
+                    "profile_picture": picture
+                }).eq("id", user["id"]).execute()
+        else:
+            # Create new user
+            from services.database import supabase
+            
+            result = supabase.table("users").insert({
+                "email": email,
+                "password_hash": "",
+                "google_id": google_user_id,
+                "profile_picture": picture,
+                "plan": "free",
+                "comparisons_used": 0,
+                "comparisons_limit": 10
+            }).execute()
+            
+            if not result.data:
+                raise HTTPException(status_code=500, detail="Failed to create user")
+            
+            user = result.data[0]
+        
+        # Generate token
+        token = create_access_token({
+            "sub": user["id"], 
+            "email": user["email"]
+        })
+        
+        return {
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "plan": user.get("plan", "free"),
+                "profile_picture": picture
+            },
+            "isNewUser": not existing_user
+        }
+        
+    except ValueError as e:
+        print(f"Google auth error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except Exception as e:
+        print(f"Google auth error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Failed to authenticate with Google")
 
 # ============================================
 # NEW: REPORTS ENDPOINTS
@@ -264,6 +348,7 @@ async def delete_report(
     except Exception as e:
         print(f"Delete error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 # ============================================
 # ORIGINAL ENDPOINTS (KEPT AS-IS)
 # ============================================
@@ -274,7 +359,7 @@ async def root():
         "status": "healthy",
         "service": "ClauseCompare API",
         "version": "2.0.0",
-        "features": ["semantic_analysis", "ai_powered", "clause_comparison"]
+        "features": ["semantic_analysis", "ai_powered", "clause_comparison", "google_oauth"]
     }
 
 @app.get("/health")
@@ -285,6 +370,7 @@ async def health():
         "timestamp": datetime.utcnow().isoformat(),
         "ai_available": bool(os.getenv("GROQ_API_KEY")),
         "ai_model": "llama-3.3-70b-versatile",
+        "google_oauth_enabled": bool(GOOGLE_CLIENT_ID),
         "comparison_methods": {
             "rule_based": True,
             "ai_enhanced": bool(os.getenv("GROQ_API_KEY")),
@@ -301,7 +387,7 @@ async def compare_contracts(
     fileB: UploadFile = File(..., description="Second contract file (PDF, DOCX, or TXT)"),
     use_llm: Optional[str] = Form("false", description="Enhance rule-based diffs with AI explanations"),
     use_ai_full: Optional[str] = Form("true", description="Use full AI-powered semantic comparison (RECOMMENDED - default)"),
-    user_id: str = Depends(get_current_user)  # CHANGED: Now requires auth token
+    user_id: str = Depends(get_current_user)
 ):
     """
     Compare two contract files with semantic understanding.
@@ -484,7 +570,7 @@ async def compare_contracts(
             "riskReport": report.get("riskReport", ""),
             "verdict": report.get("verdict", ""),
             "diffs": diffs,
-            "usage": usage,  # CHANGED: Now from database
+            "usage": usage,
             "metadata": {
                 "createdAt": timestamp,
                 "fileA": fileA.filename,
@@ -503,7 +589,6 @@ async def compare_contracts(
             print(f"✓ Report saved to database: {report_id}")
         except Exception as e:
             print(f"⚠ Warning: Failed to save report to database: {e}")
-            # Don't fail the request if database save fails
         
         # NEW: Increment usage counter in database
         try:
@@ -601,6 +686,7 @@ async def get_stats():
         "max_files_per_request": 2,
         "ai_enabled": bool(os.getenv("GROQ_API_KEY")),
         "ai_model": "llama-3.3-70b-versatile",
+        "google_oauth_enabled": bool(GOOGLE_CLIENT_ID),
         "features": {
             "semantic_analysis": bool(os.getenv("GROQ_API_KEY")),
             "clause_comparison": True,
@@ -610,7 +696,8 @@ async def get_stats():
             "summary_generation": True,
             "verdict_generation": True,
             "rewording_detection": bool(os.getenv("GROQ_API_KEY")),
-            "legal_meaning_focus": bool(os.getenv("GROQ_API_KEY"))
+            "legal_meaning_focus": bool(os.getenv("GROQ_API_KEY")),
+            "google_oauth": bool(GOOGLE_CLIENT_ID)
         },
         "change_types_detected": ["Added", "Removed", "Modified", "Reworded"],
         "risk_levels": ["High", "Medium", "Low"]
